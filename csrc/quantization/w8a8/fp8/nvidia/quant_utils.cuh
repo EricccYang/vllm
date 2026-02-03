@@ -525,6 +525,49 @@ __inline__ __device__ Tout convert(const Tin& x) {
   __builtin_unreachable();  // Suppress missing return statement warning
 }
 
+
+
+
+
+
+
+//copy from quantization/w8a8/int8/scaled_quant.cu
+//current only support __nv_bfloat16
+template <>
+inline __device__ int8_t scaled_float_to_int8_rn<uint8_t,  __nv_bfloat16>(__nv_bfloat16 x, float scale) {
+  #ifdef USE_ROCM
+    static constexpr auto i8_min =
+        static_cast<float>(std::numeric_limits<int8_t>::min());
+    static constexpr auto i8_max =
+        static_cast<float>(std::numeric_limits<int8_t>::max());
+  
+    // To match the rounding mode of CUDA, we use nearbyint.
+    // It uses the current rounding mode, which is always FE_TONEAREST on HIP.
+    // If that changes in the future, we may need to set the rounding mode
+    // explicitly, either at runtime or compile time.
+    float dst = std::nearbyint(__bfloat162float(x) / scale);
+  
+    // saturate
+    // See https://github.com/pytorch/pytorch/issues/127666
+    // See https://github.com/llvm/llvm-project/issues/95183
+    // hip-clang std::clamp __glibcxx_assert_fail host function when building on
+    // Arch/gcc14. The following replaces std::clamp usage with similar logic
+    // dst = std::clamp(dst, i8_min, i8_max);
+    dst = (dst < i8_min) ? i8_min : (dst > i8_max) ? i8_max : dst;
+    return static_cast<int8_t>(dst);
+  #else
+    // CUDA path
+    float f = __bfloat162float(x) / scale;
+    uint32_t dst;
+    asm volatile("cvt.rni.sat.s8.f32 %0, %1;" : "=r"(dst) : "f"(f));
+    return reinterpret_cast<const int8_t&>(dst);
+  #endif
+}
+
+
+
+
+
 template <typename Tout, typename Tin, Fp8KVCacheDataType kv_dt>
 __inline__ __device__ Tout scaled_convert(const Tin& x, const float scale) {
   #ifdef ENABLE_FP8
@@ -532,6 +575,8 @@ __inline__ __device__ Tout scaled_convert(const Tin& x, const float scale) {
     return scaled_vec_conversion<Tout, Tin>(x, scale, __NV_E4M3);
   } else if constexpr (kv_dt == Fp8KVCacheDataType::kFp8E5M2) {
     return scaled_vec_conversion<Tout, Tin>(x, scale, __NV_E5M2);
+  } else if constexpr (kv_dt == Fp8KVCacheDataType::kInt8) {
+    return scaled_float_to_int8_rn<Tout, Tin>(x, scale);
   }
   #endif
   assert(false);
@@ -587,7 +632,20 @@ __inline__ __device__ Tout scaled_convert(const Tin& x, const float scale) {
           TORCH_CHECK(false,                                                   \
                       "Unsupported input type of kv cache: ", SRC_DTYPE);      \
         }                                                                      \
-      } else {                                                                 \
+      } 
+      else if (KV_DTYPE == "int8") {                                     \
+        if (SRC_DTYPE == at::ScalarType::Float) {                              \
+          FN(float, uint8_t, vllm::Fp8KVCacheDataType::kInt8);              \
+        } else if (SRC_DTYPE == at::ScalarType::Half) {                        \
+          FN(uint16_t, uint8_t, vllm::Fp8KVCacheDataType::kInt8);           \
+        } else if (SRC_DTYPE == at::ScalarType::BFloat16) {                    \
+          FN(__nv_bfloat16, uint8_t, vllm::Fp8KVCacheDataType::kInt8);      \
+        } else {                                                               \
+          TORCH_CHECK(false,                                                   \
+                      "Unsupported input type of kv cache: ", SRC_DTYPE);      \
+        }                                                                      \
+      }
+      else {                                                                 \
         TORCH_CHECK(false, "Unsupported data type of kv cache: ", KV_DTYPE);   \
       }                                                                        \
     }

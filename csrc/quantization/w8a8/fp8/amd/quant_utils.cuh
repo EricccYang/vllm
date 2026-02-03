@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <hip/hip_fp8.h>
 
 #include <hip/hip_fp16.h>
@@ -623,9 +624,25 @@ __inline__ __device__ Tout convert(const Tin& x) {
   return {};  // Squash missing return statement warning
 }
 
+
+
+
+// bf16 -> fp8
+// template <>
+// __inline__ __device__ uint8_t scaled_vec_conversion<uint8_t, __nv_bfloat16>(
+//     const __nv_bfloat16& a, float scale) {
+//   return __hip_cvt_float_to_fp8(__bfloat162float(a) / scale,
+//                                 fp8_type::__default_saturation,
+//                                 fp8_type::__default_interpret);
+// }
+
+
+
+
+
 template <typename Tout, typename Tin, Fp8KVCacheDataType kv_dt>
 __inline__ __device__ Tout scaled_convert(const Tin& x, const float scale) {
-  #ifdef ENABLE_FP8
+  #ifdef ENABLE_FP8       //这可能有问题，先不管
   if constexpr (kv_dt == Fp8KVCacheDataType::kFp8E4M3) {
     return scaled_vec_conversion<Tout, Tin>(x, scale);
   }
