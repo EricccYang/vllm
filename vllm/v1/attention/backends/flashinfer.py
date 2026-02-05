@@ -83,7 +83,7 @@ def _get_trtllm_gen_workspace_buffer():
 
 
 @triton.jit
-def _trtllm_prefill_attn_kvfp8_dequant(
+def _trtllm_prefill_attn_quantized_dequant(
     kv_cache_ptr,
     block_tables_prefill_ptr,
     block_table_stride,
@@ -105,8 +105,9 @@ def _trtllm_prefill_attn_kvfp8_dequant(
     # Dequantize K
     k_scale_val = tl.load(k_scale_ptr)
     offset = orig_page_num * KV_CACHE_STRIDE + tl.arange(0, K_CACHE_STRIDE)
-    fp8_vals = tl.load(kv_cache_ptr + offset)
-    dequantized_vals = fp8_vals.to(tl.float32) * k_scale_val
+    quantized_vals = tl.load(kv_cache_ptr + offset)
+    # Convert to float32 and scale (works for both fp8 and int8)
+    dequantized_vals = quantized_vals.to(tl.float32) * k_scale_val
     mock_cache_offset = (
         batch_idx * block_table_stride + mock_block_table_idx + 1
     ) * KV_CACHE_STRIDE + tl.arange(0, K_CACHE_STRIDE)
@@ -118,8 +119,9 @@ def _trtllm_prefill_attn_kvfp8_dequant(
     offset = (
         orig_page_num * KV_CACHE_STRIDE + K_CACHE_STRIDE + tl.arange(0, K_CACHE_STRIDE)
     )
-    fp8_vals = tl.load(kv_cache_ptr + offset)
-    dequantized_vals = fp8_vals.to(tl.float32) * v_scale_val
+    quantized_vals = tl.load(kv_cache_ptr + offset)
+    # Convert to float32 and scale (works for both fp8 and int8)
+    dequantized_vals = quantized_vals.to(tl.float32) * v_scale_val
     mock_cache_offset = (
         (batch_idx * block_table_stride + mock_block_table_idx + 1) * KV_CACHE_STRIDE
         + K_CACHE_STRIDE
@@ -129,13 +131,19 @@ def _trtllm_prefill_attn_kvfp8_dequant(
     tl.store(mock_kv_cache_ptr + mock_cache_offset, dequantized_vals)
 
 
-def trtllm_prefill_attn_kvfp8_dequant(
+def trtllm_prefill_attn_quantized_dequant(
     kv_cache: torch.Tensor,
     block_tables_prefill: torch.Tensor,
     k_scale: torch.Tensor,
     v_scale: torch.Tensor,
     dequant_dtype: torch.dtype,
 ) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Dequantize quantized KV cache (supports both fp8 and int8) for TRTLLM prefill attention.
+    
+    This function works for both fp8 and int8 quantized KV caches. The Triton kernel
+    automatically handles the type conversion based on the input tensor's dtype.
+    """
     batch_size, num_of_page_per_token = block_tables_prefill.shape
     s = kv_cache.shape
     assert s[1] == 2
@@ -153,7 +161,7 @@ def trtllm_prefill_attn_kvfp8_dequant(
         device=block_tables_prefill.device,
     ).reshape(batch_size, num_of_page_per_token)
     grid = (batch_size, num_of_page_per_token)
-    _trtllm_prefill_attn_kvfp8_dequant[grid](
+    _trtllm_prefill_attn_quantized_dequant[grid](
         kv_cache,
         block_tables_prefill,
         num_of_page_per_token,
@@ -164,6 +172,7 @@ def trtllm_prefill_attn_kvfp8_dequant(
         kv_cache_stride,
     )
     return mock_kv_cache, mock_block_table
+
 
 
 class BatchDCPPrefillWrapper:
@@ -1334,6 +1343,9 @@ class FlashInferImpl(AttentionImpl):
                     self.kv_cache_dtype
                 )
                 kv_cache = kv_cache.view(torch_dtype)
+            elif self.kv_cache_dtype.startswith("int8"):
+                torch_dtype = torch.int8
+                kv_cache = kv_cache.view(torch_dtype)
 
         # Inputs and outputs may be padded for CUDA graphs
         query = query[:num_actual_tokens]
@@ -1440,14 +1452,14 @@ class FlashInferImpl(AttentionImpl):
                     out = output[num_decode_tokens:]
 
                 if (
-                    attn_metadata.q_data_type != FP8_DTYPE
-                    and self.kv_cache_dtype.startswith("fp8")
+                    attn_metadata.q_data_type != FP8_DTYPE and 
+                    (self.kv_cache_dtype.startswith("fp8") or self.kv_cache_dtype.startswith("int8"))
                 ):
                     # TRTLLM prefill attention does not support BF16 Q
                     # and fp8 kv cache. So to enable prefill attention
                     # with fp8 kv cache, we can construct a mock block
                     # and mock kv cache with BF16 KV involved in the prefill
-                    mock_kv_cache, mock_block_table = trtllm_prefill_attn_kvfp8_dequant(
+                    mock_kv_cache, mock_block_table = trtllm_prefill_attn_quantized_dequant(
                         kv_cache_permute,
                         block_tables_prefill,
                         layer._k_scale,

@@ -528,13 +528,161 @@ __inline__ __device__ Tout convert(const Tin& x) {
 
 
 
+// scaled_float_to_int8_rn: used when kv_dt == kInt8 in scaled_convert().
+//
+// Call sites and required (Tout, Tin) specializations:
+//
+// 1) attention_kernels.cuh: scaled_convert<K_vec, Quant_vec, kInt8> (decode)
+//    K_vec / Quant_vec from Vec<scalar_t, VEC_SIZE> and Vec<cache_t, VEC_SIZE>
+//    with scalar_t in {float, uint16_t, __nv_bfloat16}, cache_t = uint8_t:
+//    - float:   (float, uint8_t), (float2, uint16_t), (float4, uint32_t)
+//    - half:    (uint16_t, uint8_t), (uint32_t, uint16_t), (uint2, uint32_t), (uint4, uint2)
+//    - bf16:    (__nv_bfloat16, uint8_t), (__nv_bfloat162, uint16_t), (bf16_4_t, uint32_t), (bf16_8_t, uint2)
+//
+// 2) attention_kernels.cuh: scaled_convert<V_vec, V_quant_vec, kInt8> (decode)
+//    V_VEC_SIZE = MIN(16/sizeof(scalar_t), BLOCK_SIZE) -> same vector pairs as above.
+//
+// 3) cache_kernels.cu / cache_kernels_fused.cu: scaled_convert<cache_t, scalar_t, kInt8> (encode)
+//    Single-element write: (uint8_t, float), (uint8_t, uint16_t), (uint8_t, __nv_bfloat16).
+//
+// 4) cache_kernels.cu: scaled_convert<scalar_t, cache_t, kInt8> (decode, gather)
+//    Single-element read: (float, uint8_t), (uint16_t, uint8_t), (__nv_bfloat16, uint8_t).
+//
+// 5) cache_kernels.cu convert_fp8_kernel: scaled_convert<Tout, Tin, kInt8> (Tout/Tin from tensors).
+//
+template <typename Tout, typename Tin>
+__inline__ __device__ Tout scaled_float_to_int8_rn(
+    const Tin& x, const float scale) {
+  // Only (Tout, Tin) pairs with explicit specializations below are valid.
+  assert(false);
+  __builtin_unreachable();
+  return Tout{};
+}
 
-
-
-//copy from quantization/w8a8/int8/scaled_quant.cu
-//current only support __nv_bfloat16
+// int8/uint8 decode: cache byte(s) -> float (dequant = reinterpret as int8 * scale)
 template <>
-inline __device__ int8_t scaled_float_to_int8_rn<uint8_t,  __nv_bfloat16>(__nv_bfloat16 x, float scale) {
+__inline__ __device__ float scaled_float_to_int8_rn<float, uint8_t>(
+    const uint8_t& a, const float scale) {
+  return (float)(int8_t)a * scale;
+}
+
+template <>
+__inline__ __device__ float2 scaled_float_to_int8_rn<float2, uint16_t>(
+    const uint16_t& a, const float scale) {
+  float2 res;
+  res.x = (float)(int8_t)(a & 0xFFu) * scale;
+  res.y = (float)(int8_t)(a >> 8) * scale;
+  return res;
+}
+
+template <>
+__inline__ __device__ float4 scaled_float_to_int8_rn<float4, uint32_t>(
+    const uint32_t& a, const float scale) {
+  float4 res = make_float4((float)(int8_t)(a & 0xFFu) * scale,
+                           (float)(int8_t)((a >> 8) & 0xFFu) * scale,
+                           (float)(int8_t)((a >> 16) & 0xFFu) * scale,
+                           (float)(int8_t)(a >> 24) * scale);
+  return res;
+}
+
+// int8 decode -> half (uint16_t)
+template <>
+__inline__ __device__ uint16_t scaled_float_to_int8_rn<uint16_t, uint8_t>(
+    const uint8_t& a, const float scale) {
+  return float_to_half((float)(int8_t)a * scale);
+}
+
+template <>
+__inline__ __device__ uint32_t scaled_float_to_int8_rn<uint32_t, uint16_t>(
+    const uint16_t& a, const float scale) {
+  union {
+    uint16_t u16[2];
+    uint32_t u32;
+  } tmp;
+  tmp.u16[0] = scaled_float_to_int8_rn<uint16_t, uint8_t>(
+      (uint8_t)(a & 0xFFu), scale);
+  tmp.u16[1] = scaled_float_to_int8_rn<uint16_t, uint8_t>(
+      (uint8_t)(a >> 8), scale);
+  return tmp.u32;
+}
+
+template <>
+__inline__ __device__ uint2 scaled_float_to_int8_rn<uint2, uint32_t>(
+    const uint32_t& a, const float scale) {
+  union {
+    uint2 u32x2;
+    uint32_t u32[2];
+  } tmp;
+  tmp.u32[0] = scaled_float_to_int8_rn<uint32_t, uint16_t>(
+      (uint16_t)(a & 0xFFFFu), scale);
+  tmp.u32[1] = scaled_float_to_int8_rn<uint32_t, uint16_t>(
+      (uint16_t)(a >> 16), scale);
+  return tmp.u32x2;
+}
+
+template <>
+__inline__ __device__ uint4 scaled_float_to_int8_rn<uint4, uint2>(
+    const uint2& a, const float scale) {
+  union {
+    uint4 u64x2;
+    uint2 u64[2];
+  } tmp;
+  tmp.u64[0] = scaled_float_to_int8_rn<uint2, uint32_t>(a.x, scale);
+  tmp.u64[1] = scaled_float_to_int8_rn<uint2, uint32_t>(a.y, scale);
+  return tmp.u64x2;
+}
+
+// int8 decode -> bf16
+template <>
+__inline__ __device__ __nv_bfloat16 scaled_float_to_int8_rn<__nv_bfloat16, uint8_t>(
+    const uint8_t& a, const float scale) {
+  return __float2bfloat16((float)(int8_t)a * scale);
+}
+
+template <>
+__inline__ __device__ __nv_bfloat162 scaled_float_to_int8_rn<__nv_bfloat162, uint16_t>(
+    const uint16_t& a, const float scale) {
+  __nv_bfloat162 res;
+  res.x = scaled_float_to_int8_rn<__nv_bfloat16, uint8_t>(
+      (uint8_t)(a & 0xFFu), scale);
+  res.y = scaled_float_to_int8_rn<__nv_bfloat16, uint8_t>(
+      (uint8_t)(a >> 8), scale);
+  return res;
+}
+
+template <>
+__inline__ __device__ bf16_4_t scaled_float_to_int8_rn<bf16_4_t, uint32_t>(
+    const uint32_t& a, const float scale) {
+  bf16_4_t res;
+  res.x = scaled_float_to_int8_rn<__nv_bfloat162, uint16_t>(
+      (uint16_t)(a & 0xFFFFu), scale);
+  res.y = scaled_float_to_int8_rn<__nv_bfloat162, uint16_t>(
+      (uint16_t)(a >> 16), scale);
+  return res;
+}
+
+template <>
+__inline__ __device__ bf16_8_t scaled_float_to_int8_rn<bf16_8_t, uint2>(
+    const uint2& a, const float scale) {
+  bf16_4_t tmp1 = scaled_float_to_int8_rn<bf16_4_t, uint32_t>(a.x, scale);
+  bf16_4_t tmp2 = scaled_float_to_int8_rn<bf16_4_t, uint32_t>(a.y, scale);
+  bf16_8_t res;
+  res.x = tmp1.x;
+  res.y = tmp1.y;
+  res.z = tmp2.x;
+  res.w = tmp2.y;
+  return res;
+}
+
+// copy from quantization/w8a8/int8/scaled_quant.cu
+//a version for bf16 to int8
+//current only support __nv_bfloat16
+
+
+//还有好多问题， 应该是uint8_t存，但是解析是按int8_t解析的
+template <>
+inline __device__ uint8_t scaled_float_to_int8_rn<uint8_t, __nv_bfloat16>(
+    const __nv_bfloat16& x, const float scale) {
   #ifdef USE_ROCM
     static constexpr auto i8_min =
         static_cast<float>(std::numeric_limits<int8_t>::min());
@@ -545,7 +693,7 @@ inline __device__ int8_t scaled_float_to_int8_rn<uint8_t,  __nv_bfloat16>(__nv_b
     // It uses the current rounding mode, which is always FE_TONEAREST on HIP.
     // If that changes in the future, we may need to set the rounding mode
     // explicitly, either at runtime or compile time.
-    float dst = std::nearbyint(__bfloat162float(x) / scale);
+    uint32_t dst = std::nearbyint(__bfloat162float(x) / scale);
   
     // saturate
     // See https://github.com/pytorch/pytorch/issues/127666
@@ -554,19 +702,75 @@ inline __device__ int8_t scaled_float_to_int8_rn<uint8_t,  __nv_bfloat16>(__nv_b
     // Arch/gcc14. The following replaces std::clamp usage with similar logic
     // dst = std::clamp(dst, i8_min, i8_max);
     dst = (dst < i8_min) ? i8_min : (dst > i8_max) ? i8_max : dst;
-    return static_cast<int8_t>(dst);
+    return static_cast<uint8_t>(dst);
   #else
     // CUDA path
     float f = __bfloat162float(x) / scale;
     uint32_t dst;
     asm volatile("cvt.rni.sat.s8.f32 %0, %1;" : "=r"(dst) : "f"(f));
-    return reinterpret_cast<const int8_t&>(dst);
+    return reinterpret_cast<const uint8_t&>(dst);
   #endif
 }
 
+// encode: float -> uint8_t (cache write when scalar_t is float)
+template <>
+inline __device__ uint8_t scaled_float_to_int8_rn<uint8_t, float>(
+    const float& x, const float scale) {
+  #ifdef USE_ROCM
+    float dst = std::nearbyint(x / scale);
+    static constexpr auto i8_min =
+        static_cast<float>(std::numeric_limits<int8_t>::min());
+    static constexpr auto i8_max =
+        static_cast<float>(std::numeric_limits<int8_t>::max());
+    dst = (dst < i8_min) ? i8_min : (dst > i8_max) ? i8_max : dst;
+    return static_cast<uint8_t>(dst);
+  #else
+    float f = x / scale;
+    uint32_t dst;
+    asm volatile("cvt.rni.sat.s8.f32 %0, %1;" : "=r"(dst) : "f"(f));
+    return reinterpret_cast<const uint8_t&>(dst);
+  #endif
+}
 
+// encode: half (uint16_t) -> uint8_t (cache write when scalar_t is half)
+template <>
+inline __device__ uint8_t scaled_float_to_int8_rn<uint8_t, uint16_t>(
+    const uint16_t& x, const float scale) {
+  float f = half_to_float(x) / scale;
+  #ifdef USE_ROCM
+    float dst = std::nearbyint(f);
+    static constexpr auto i8_min =
+        static_cast<float>(std::numeric_limits<int8_t>::min());
+    static constexpr auto i8_max =
+        static_cast<float>(std::numeric_limits<int8_t>::max());
+    dst = (dst < i8_min) ? i8_min : (dst > i8_max) ? i8_max : dst;
+    return static_cast<uint8_t>(dst);
+  #else
+    uint32_t dst;
+    asm volatile("cvt.rni.sat.s8.f32 %0, %1;" : "=r"(dst) : "f"(f));
+    return reinterpret_cast<const uint8_t&>(dst);
+  #endif
+}
 
-
+// bf16 to uint8 (saturate to [0, 255])
+// template <>
+// inline __device__ uint8_t scaled_float_to_int8_rn<uint8_t, __nv_bfloat16>(
+//     __nv_bfloat16 x, float scale) {
+//   #ifdef USE_ROCM
+//     static constexpr auto u8_min =
+//         static_cast<float>(std::numeric_limits<uint8_t>::min());
+//     static constexpr auto u8_max =
+//         static_cast<float>(std::numeric_limits<uint8_t>::max());
+//     float dst = std::nearbyint(__bfloat162float(x) / scale);
+//     dst = (dst < u8_min) ? u8_min : (dst > u8_max) ? u8_max : dst;
+//     return static_cast<uint8_t>(dst);
+//   #else
+//     float f = __bfloat162float(x) / scale;
+//     uint32_t dst;
+//     asm volatile("cvt.rni.sat.u8.f32 %0, %1;" : "=r"(dst) : "f"(f));
+//     return static_cast<uint8_t>(dst & 0xFFu);
+//   #endif
+// }
 
 template <typename Tout, typename Tin, Fp8KVCacheDataType kv_dt>
 __inline__ __device__ Tout scaled_convert(const Tin& x, const float scale) {
@@ -632,8 +836,7 @@ __inline__ __device__ Tout scaled_convert(const Tin& x, const float scale) {
           TORCH_CHECK(false,                                                   \
                       "Unsupported input type of kv cache: ", SRC_DTYPE);      \
         }                                                                      \
-      } 
-      else if (KV_DTYPE == "int8") {                                     \
+      } else if (KV_DTYPE == "int8") {                                        \
         if (SRC_DTYPE == at::ScalarType::Float) {                              \
           FN(float, uint8_t, vllm::Fp8KVCacheDataType::kInt8);              \
         } else if (SRC_DTYPE == at::ScalarType::Half) {                        \
@@ -644,8 +847,7 @@ __inline__ __device__ Tout scaled_convert(const Tin& x, const float scale) {
           TORCH_CHECK(false,                                                   \
                       "Unsupported input type of kv cache: ", SRC_DTYPE);      \
         }                                                                      \
-      }
-      else {                                                                 \
+      } else {                                                                 \
         TORCH_CHECK(false, "Unsupported data type of kv cache: ", KV_DTYPE);   \
       }                                                                        \
     }

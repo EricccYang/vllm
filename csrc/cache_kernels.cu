@@ -133,7 +133,7 @@ struct CopyWithScaleOp {
     if constexpr (kv_dt == Fp8KVCacheDataType::kAuto) {
       dst = static_cast<OutT>(src);
     } else if constexpr (kv_dt == Fp8KVCacheDataType::kInt8) {
-      dst = fp8::scaled_convert<OutT, InT, kv_dt>(src, scale);    //先这么写，后面再改
+      dst = fp8::scaled_convert<OutT, InT, kv_dt>(src, scale);    //先这么写，后面再改, 最好是不绑定
     } else {
       dst = fp8::scaled_convert<OutT, InT, kv_dt>(src, scale);
     }
