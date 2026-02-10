@@ -3,7 +3,6 @@
 """Attention layer with FlashInfer."""
 
 from dataclasses import dataclass
-from math import log
 from typing import ClassVar
 
 import numpy as np
@@ -84,7 +83,7 @@ def _get_trtllm_gen_workspace_buffer():
 
 
 @triton.jit
-def _trtllm_prefill_attn_quantized_dequant(
+def _trtllm_prefill_attn_kvfp8_dequant(
     kv_cache_ptr,
     block_tables_prefill_ptr,
     block_table_stride,
@@ -106,9 +105,8 @@ def _trtllm_prefill_attn_quantized_dequant(
     # Dequantize K
     k_scale_val = tl.load(k_scale_ptr)
     offset = orig_page_num * KV_CACHE_STRIDE + tl.arange(0, K_CACHE_STRIDE)
-    quantized_vals = tl.load(kv_cache_ptr + offset)
-    # Convert to float32 and scale (works for both fp8 and int8)
-    dequantized_vals = quantized_vals.to(tl.float32) * k_scale_val
+    fp8_vals = tl.load(kv_cache_ptr + offset)
+    dequantized_vals = fp8_vals.to(tl.float32) * k_scale_val
     mock_cache_offset = (
         batch_idx * block_table_stride + mock_block_table_idx + 1
     ) * KV_CACHE_STRIDE + tl.arange(0, K_CACHE_STRIDE)
@@ -120,9 +118,8 @@ def _trtllm_prefill_attn_quantized_dequant(
     offset = (
         orig_page_num * KV_CACHE_STRIDE + K_CACHE_STRIDE + tl.arange(0, K_CACHE_STRIDE)
     )
-    quantized_vals = tl.load(kv_cache_ptr + offset)
-    # Convert to float32 and scale (works for both fp8 and int8)
-    dequantized_vals = quantized_vals.to(tl.float32) * v_scale_val
+    fp8_vals = tl.load(kv_cache_ptr + offset)
+    dequantized_vals = fp8_vals.to(tl.float32) * v_scale_val
     mock_cache_offset = (
         (batch_idx * block_table_stride + mock_block_table_idx + 1) * KV_CACHE_STRIDE
         + K_CACHE_STRIDE
@@ -132,21 +129,13 @@ def _trtllm_prefill_attn_quantized_dequant(
     tl.store(mock_kv_cache_ptr + mock_cache_offset, dequantized_vals)
 
 
-def trtllm_prefill_attn_quantized_dequant(
+def trtllm_prefill_attn_kvfp8_dequant(
     kv_cache: torch.Tensor,
     block_tables_prefill: torch.Tensor,
     k_scale: torch.Tensor,
     v_scale: torch.Tensor,
     dequant_dtype: torch.dtype,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """
-    Dequantize quantized KV cache (supports both fp8 and int8) for TRTLLM prefill attention.
-    
-    This function works for both fp8 and int8 quantized KV caches. The Triton kernel
-    automatically handles the type conversion based on the input tensor's dtype.
-    """
-    logger.info("TRTLLM prefill attention with  %s KV cache.", kv_cache.dtype)
-    logger.info("dequant_dtype: %s", dequant_dtype)
     batch_size, num_of_page_per_token = block_tables_prefill.shape
     s = kv_cache.shape
     assert s[1] == 2
@@ -164,7 +153,7 @@ def trtllm_prefill_attn_quantized_dequant(
         device=block_tables_prefill.device,
     ).reshape(batch_size, num_of_page_per_token)
     grid = (batch_size, num_of_page_per_token)
-    _trtllm_prefill_attn_quantized_dequant[grid](
+    _trtllm_prefill_attn_kvfp8_dequant[grid](
         kv_cache,
         block_tables_prefill,
         num_of_page_per_token,
@@ -175,7 +164,6 @@ def trtllm_prefill_attn_quantized_dequant(
         kv_cache_stride,
     )
     return mock_kv_cache, mock_block_table
-
 
 
 class BatchDCPPrefillWrapper:
@@ -306,6 +294,29 @@ class FlashInferBackend(AttentionBackend):
         # only support a page size of 16, 32, 64.
         return [16, 32, 64]
 
+
+
+    # One full-size dequant buffer shared by all layers (int8 decode/prefill).
+    _int8_dequant_full_buffer: torch.Tensor | None = None
+
+    @staticmethod
+    def get_int8_dequant_full_buffer(
+        shape: tuple[int, ...],
+        dtype: torch.dtype,
+        device: torch.device,
+    ) -> torch.Tensor:
+        buf = FlashInferBackend._int8_dequant_full_buffer
+        if (
+            buf is None
+            or buf.shape != shape
+            or buf.dtype != dtype
+            or buf.device != device
+        ):
+            buf = torch.empty(shape, dtype=dtype, device=device)
+            FlashInferBackend._int8_dequant_full_buffer = buf
+        return buf
+
+
     @staticmethod
     def get_name() -> str:
         return "FLASHINFER"
@@ -400,6 +411,8 @@ class FIPrefill:
     """Metadata for the native FlashInfer prefill pathway (non-TRTLLM)."""
 
     wrapper: BatchPrefillWithPagedKVCacheWrapper | BatchDCPPrefillWrapper
+    # When KV cache is int8: physical block ids for prefill pages, for dequant.
+    physical_page_indices: torch.Tensor | None = None
 
 
 @dataclass
@@ -407,6 +420,8 @@ class FIDecode:
     """Metadata for the native FlashInfer decode pathway (non-TRTLLM)."""
 
     wrapper: BatchDecodeWithPagedKVCacheWrapper
+    # When KV cache is int8: physical block ids for decode pages, for dequant.
+    physical_page_indices: torch.Tensor | None = None
 
 
 @dataclass
@@ -588,20 +603,6 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
         # try to use fp8 q if kv cache is fp8, and will fall back to model dtype
         # if TRTLLM attention kernel is not used when building attn metadata
         can_use_trtllm = can_use_trtllm_attention(self.num_qo_heads, self.num_kv_heads)
-
-        # TRTLLM attention requires strictly contiguous KV cache tensors.
-        # When KV transfer (P/D disaggregation) is enabled, the KV cache may be
-        # permuted into non-contiguous views, which causes assertion failures.
-        self._kv_transfer_enabled = vllm_config.kv_transfer_config is not None
-        if can_use_trtllm and self._kv_transfer_enabled:
-            logger.info_once(
-                "TRTLLM attention is disabled because KV transfer "
-                "(P/D disaggregation) is enabled. TRTLLM attention requires "
-                "strictly contiguous KV cache tensors which may not be "
-                "guaranteed with KV transfer."
-            )
-            can_use_trtllm = False
-
         if (
             can_use_trtllm
             and not vllm_config.attention_config.disable_flashinfer_q_quantization
@@ -851,9 +852,6 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
             has_sinks=self.has_sinks,
             has_spec=uses_spec_reorder,
         )
-        # KV transfer requires non-contiguous KV cache views, incompatible with TRTLLM
-        if self._kv_transfer_enabled:
-            prefill_use_trtllm = False
         decode_use_trtllm = (
             self.use_trtllm_decode_attention and self.dcp_world_size <= 1
         )
@@ -1074,6 +1072,23 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
                         prefill_wrapper,
                         BatchPrefillWithPagedKVCacheWrapper,
                     )
+                    use_int8 = self.cache_dtype.startswith("int8")
+                    physical_page_indices_prefill = None
+                    if use_int8:
+                        prefill_page_start = int(
+                            self.paged_kv_indptr.np[prefill_start]
+                        )
+                        num_prefill_pages = int(
+                            self.paged_kv_indptr.np[num_reqs]
+                            - prefill_page_start
+                        )
+                        physical_page_indices_prefill = paged_kv_indices[
+                            prefill_page_start : prefill_page_start
+                            + num_prefill_pages
+                        ].clone()
+                        prefill_kv_dtype = self.model_config.dtype
+                    else:
+                        prefill_kv_dtype = self.kv_cache_dtype
                     prefill_wrapper.plan(
                         qo_indptr_prefill_cpu,
                         paged_kv_indptr_prefill_cpu,
@@ -1088,12 +1103,15 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
                         window_left=self.window_left,
                         logits_soft_cap=self.logits_soft_cap,
                         q_data_type=self.q_data_type,
-                        kv_data_type=self.kv_cache_dtype,
+                        kv_data_type=prefill_kv_dtype,
                         o_data_type=self.model_config.dtype,
                         fixed_split_size=self.prefill_fixed_split_size,
                         disable_split_kv=self.disable_split_kv,
                     )
-                attn_metadata.prefill = FIPrefill(wrapper=prefill_wrapper)
+                attn_metadata.prefill = FIPrefill(
+                    wrapper=prefill_wrapper,
+                    physical_page_indices=physical_page_indices_prefill,
+                )
 
         ## DECODE PATHWAY
         if num_decodes > 0:
@@ -1118,6 +1136,18 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
                 decode_wrapper = self._get_decode_wrapper(
                     num_input_tokens, use_cudagraph
                 )
+                use_int8_decode = self.cache_dtype.startswith("int8")
+                if use_int8_decode:
+                    num_decode_pages = int(
+                        self.paged_kv_indptr.np[num_input_tokens]
+                    )
+                    physical_page_indices_decode = paged_kv_indices[
+                        :num_decode_pages
+                    ].clone()
+                    decode_kv_dtype = self.model_config.dtype
+                else:
+                    physical_page_indices_decode = None
+                    decode_kv_dtype = self.kv_cache_dtype
                 # Use the persistent buffer with padding length,
                 # instead of the same address but chunked version
                 # in atten_metadata when using cudagraph.
@@ -1137,12 +1167,15 @@ class FlashInferMetadataBuilder(AttentionMetadataBuilder[FlashInferMetadata]):
                     window_left=self.window_left,
                     logits_soft_cap=self.logits_soft_cap,
                     q_data_type=self.q_data_type,
-                    kv_data_type=self.kv_cache_dtype,
+                    kv_data_type=decode_kv_dtype,
                     o_data_type=self.model_config.dtype,
                     fixed_split_size=self.decode_fixed_split_size,
                     disable_split_kv=self.disable_split_kv,
                 )
-                attn_metadata.decode = FIDecode(wrapper=decode_wrapper)
+                attn_metadata.decode = FIDecode(
+                    wrapper=decode_wrapper,
+                    physical_page_indices=physical_page_indices_decode,
+                )
         return attn_metadata
 
     def use_cascade_attention(self, *args, **kwargs) -> bool:
@@ -1187,7 +1220,6 @@ class FlashInferImpl(AttentionImpl):
             self.sliding_window[0] if self.sliding_window is not None else -1
         )
         self.kv_cache_dtype = kv_cache_dtype
-        logger.info_once("FlashInferImpl kv_cache_dtype: %s", self.kv_cache_dtype)
         self.logits_soft_cap = logits_soft_cap
         self.kv_sharing_target_layer_name = kv_sharing_target_layer_name
 
@@ -1278,7 +1310,6 @@ class FlashInferImpl(AttentionImpl):
 
         prefill_use_trtllm = isinstance(attn_metadata.prefill, TRTLLMPrefill)
         decode_use_trtllm = isinstance(attn_metadata.decode, TRTLLMDecode)
-        logger.info_once("prefill_use_trtllm: %s, decode_use_trtllm: %s", prefill_use_trtllm, decode_use_trtllm)
 
         # The attn+quant fusion happens when output_scale is provided.
         if output_scale is None:
@@ -1344,16 +1375,17 @@ class FlashInferImpl(AttentionImpl):
                 layer._v_scale,
             )
 
-            # The FlashInfer api requires data to be in fp8_e4m3 or fp8_e5m2
-            # to process the cache when the kv_cache_dtype is fp8
+            # FlashInfer: view cache as backend dtype (fp8 or int8)
             if self.kv_cache_dtype.startswith("fp8"):
                 torch_dtype = FlashInferBackend.get_fp8_dtype_for_flashinfer(
                     self.kv_cache_dtype
                 )
                 kv_cache = kv_cache.view(torch_dtype)
-            elif self.kv_cache_dtype.startswith("int8"):
-                torch_dtype = torch.int8
-                kv_cache = kv_cache.view(torch_dtype)
+            elif (
+                isinstance(self.kv_cache_dtype, str)
+                and self.kv_cache_dtype.startswith("int8")
+            ) or self.kv_cache_dtype == torch.int8:
+                kv_cache = kv_cache.view(torch.int8)
 
         # Inputs and outputs may be padded for CUDA graphs
         query = query[:num_actual_tokens]
@@ -1375,6 +1407,7 @@ class FlashInferImpl(AttentionImpl):
 
         stride_order = FlashInferBackend.get_kv_cache_stride_order()
         kv_cache_permute = kv_cache.permute(*stride_order)
+        dequant_dtype = attn_metadata.q_data_type
 
         use_dcp = self.dcp_world_size > 1
 
@@ -1415,6 +1448,36 @@ class FlashInferImpl(AttentionImpl):
                     assert isinstance(
                         prefill_wrapper, BatchPrefillWithPagedKVCacheWrapper
                     )
+                    prefill_physical = getattr(
+                        attn_metadata.prefill,
+                        "physical_page_indices",
+                        None,
+                    )
+                    if prefill_physical is not None:
+                        from vllm.v1.attention.backends.int8_prefill_kv import (
+                            dequant_int8_pages_into_buffer,
+                        )
+
+                        full_buf = FlashInferBackend.get_int8_dequant_full_buffer(
+                            kv_cache.shape,
+                            dequant_dtype,
+                            kv_cache.device,
+                        )
+                        dequant_int8_pages_into_buffer(
+                            kv_cache,
+                            prefill_physical,
+                            layer._k_scale_float,
+                            layer._v_scale_float,
+                            dequant_dtype,
+                            full_buf,
+                        )
+                        prefill_kv_permute = full_buf.permute(*stride_order)
+                        prefill_scale_k = 1.0
+                        prefill_scale_v = 1.0
+                    else:
+                        prefill_kv_permute = kv_cache_permute
+                        prefill_scale_k = layer._k_scale_float
+                        prefill_scale_v = layer._v_scale_float
                     assert prefill_wrapper._window_left == self.window_left
                     assert prefill_wrapper._logits_soft_cap == (
                         self.logits_soft_cap or 0.0
@@ -1423,9 +1486,9 @@ class FlashInferImpl(AttentionImpl):
                     assert prefill_wrapper._causal
                     prefill_wrapper.run(
                         prefill_query,
-                        kv_cache_permute,
-                        k_scale=layer._k_scale_float,
-                        v_scale=layer._v_scale_float,
+                        prefill_kv_permute,
+                        k_scale=prefill_scale_k,
+                        v_scale=prefill_scale_v,
                         out=output[num_decode_tokens:],
                     )
             else:
@@ -1459,19 +1522,15 @@ class FlashInferImpl(AttentionImpl):
                     assert self.o_sf_scale is None
                     out = output[num_decode_tokens:]
 
-                use_quantized_dequant = (
+                if (
                     attn_metadata.q_data_type != FP8_DTYPE
-                    and (
-                        self.kv_cache_dtype.startswith("fp8")
-                        or self.kv_cache_dtype.startswith("int8")
-                    )
-                )
-                if use_quantized_dequant:
+                    and self.kv_cache_dtype.startswith("fp8")
+                ):
                     # TRTLLM prefill attention does not support BF16 Q
                     # and fp8 kv cache. So to enable prefill attention
                     # with fp8 kv cache, we can construct a mock block
                     # and mock kv cache with BF16 KV involved in the prefill
-                    mock_kv_cache, mock_block_table = trtllm_prefill_attn_quantized_dequant(
+                    mock_kv_cache, mock_block_table = trtllm_prefill_attn_kvfp8_dequant(
                         kv_cache_permute,
                         block_tables_prefill,
                         layer._k_scale,
@@ -1481,11 +1540,6 @@ class FlashInferImpl(AttentionImpl):
                 else:
                     mock_kv_cache = kv_cache_permute
                     mock_block_table = block_tables_prefill
-                    logger.info_once(
-                        "TRTLLM prefill skip dequant: q_data_type=%s, kv_cache_dtype=%s",
-                        attn_metadata.q_data_type,
-                        self.kv_cache_dtype,
-                    )
 
                 trtllm_batch_context_with_kv_cache(
                     query=prefill_query,
@@ -1518,6 +1572,37 @@ class FlashInferImpl(AttentionImpl):
                 assert decode_wrapper._logits_soft_cap == (self.logits_soft_cap or 0.0)
                 assert decode_wrapper._sm_scale == self.scale
 
+                decode_physical = getattr(
+                    attn_metadata.decode,
+                    "physical_page_indices",
+                    None,
+                )
+                if decode_physical is not None:
+                    from vllm.v1.attention.backends.int8_prefill_kv import (
+                        dequant_int8_pages_into_buffer,
+                    )
+
+                    full_buf = FlashInferBackend.get_int8_dequant_full_buffer(
+                        kv_cache.shape,
+                        dequant_dtype,
+                        kv_cache.device,
+                    )
+                    dequant_int8_pages_into_buffer(
+                        kv_cache,
+                        decode_physical,
+                        layer._k_scale_float,
+                        layer._v_scale_float,
+                        dequant_dtype,
+                        full_buf,
+                    )
+                    decode_kv_permute = full_buf.permute(*stride_order)
+                    decode_scale_k = 1.0
+                    decode_scale_v = 1.0
+                else:
+                    decode_kv_permute = kv_cache_permute
+                    decode_scale_k = layer._k_scale_float
+                    decode_scale_v = layer._v_scale_float
+
                 if use_dcp:
                     decode_query = get_dcp_group().all_gather(
                         decode_query.contiguous(), dim=-2
@@ -1530,9 +1615,9 @@ class FlashInferImpl(AttentionImpl):
                     )
                     decode_wrapper.run(
                         decode_query,
-                        kv_cache_permute,
-                        k_scale=layer._k_scale_float,
-                        v_scale=layer._v_scale_float,
+                        decode_kv_permute,
+                        k_scale=decode_scale_k,
+                        v_scale=decode_scale_v,
                         out=output_tmp,
                         lse=lse,
                         return_lse=True,
@@ -1546,9 +1631,9 @@ class FlashInferImpl(AttentionImpl):
                 else:
                     decode_wrapper.run(
                         decode_query,
-                        kv_cache_permute,
-                        k_scale=layer._k_scale_float,
-                        v_scale=layer._v_scale_float,
+                        decode_kv_permute,
+                        k_scale=decode_scale_k,
+                        v_scale=decode_scale_v,
                         out=output[:num_decode_tokens],
                     )
             else:
@@ -1589,34 +1674,11 @@ class FlashInferImpl(AttentionImpl):
                 else:
                     q_len_per_req = num_decode_tokens // attn_metadata.num_decodes
 
-
-                
-                if (
-                    attn_metadata.q_data_type != FP8_DTYPE
-                    and self.kv_cache_dtype.startswith("int8")
-                ):
-                    # TRT-LLM decode attention does not support int8 KV cache natively.
-                    # Dequant to BF16/FP16 and construct a contiguous mock KV cache.
-                    logger.info("TRTLLM decode attention with int8 KV cache. ++++++++++++++++++++++++++++++++++++")
-                    
-                    mock_kv_cache, mock_block_table = trtllm_prefill_attn_quantized_dequant(
-                        kv_cache_permute,
-                        block_tables_decode,
-                        layer._k_scale,
-                        layer._v_scale,
-                        attn_metadata.q_data_type,
-                    )
-                else:
-                    mock_kv_cache = kv_cache_permute
-                    mock_block_table = block_tables_decode
-
-
-
                 trtllm_batch_decode_with_kv_cache(
                     query=decode_query,
-                    kv_cache=mock_kv_cache,
+                    kv_cache=kv_cache_permute,
                     workspace_buffer=workspace_buffer,
-                    block_tables=mock_block_table,
+                    block_tables=block_tables_decode,
                     seq_lens=seq_lens_decode,
                     max_seq_len=attn_metadata.decode.max_seq_len,
                     bmm1_scale=self.bmm1_scale,

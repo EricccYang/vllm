@@ -3125,9 +3125,22 @@ class GPUModelRunner(
             else (CUDAGraphMode.NONE, BatchDescriptor(num_tokens_padded))
         )
 
+        # int8 KV decode path uses variable-length physical_page_indices
+        # (num_decode_pages); FULL cudagraph replay would use wrong buffer size.
+        # PIECEWISE decode replay can also use wrong buffer sizes when batch size
+        # does not match capture; force NONE for pure decode when int8.
+        # disable_full_for_int8_kv = self.cache_config.cache_dtype.startswith("int8")
+        # num_tokens_padded_before_dispatch = num_tokens_padded
         cudagraph_mode, batch_descriptor = dispatch_cudagraph(
             num_tokens_padded, use_cascade_attn or has_encoder_output
         )
+        # if (
+        #     disable_full_for_int8_kv
+        #     and uniform_decode
+        #     and cudagraph_mode == CUDAGraphMode.PIECEWISE
+        # ):
+        #     cudagraph_mode = CUDAGraphMode.NONE
+        #     batch_descriptor = BatchDescriptor(num_tokens_padded_before_dispatch)
         num_tokens_padded = batch_descriptor.num_tokens
         if self.compilation_config.pass_config.enable_sp:
             assert (
@@ -3171,8 +3184,18 @@ class GPUModelRunner(
                 # Re-dispatch with DP padding so we have the correct batch_descriptor
                 cudagraph_mode, batch_descriptor = dispatch_cudagraph(
                     num_tokens_padded,
-                    disable_full=synced_cudagraph_mode <= CUDAGraphMode.PIECEWISE.value,
+                    disable_full=(
+                        synced_cudagraph_mode <= CUDAGraphMode.PIECEWISE.value
+                        or disable_full_for_int8_kv
+                    ),
                 )
+                if (
+                    disable_full_for_int8_kv
+                    and uniform_decode
+                    and cudagraph_mode == CUDAGraphMode.PIECEWISE
+                ):
+                    cudagraph_mode = CUDAGraphMode.NONE
+                    batch_descriptor = BatchDescriptor(num_tokens_padded)
                 # Assert to make sure the agreed upon token count is correct otherwise
                 # num_tokens_across_dp will no-longer be valid
                 assert batch_descriptor.num_tokens == num_tokens_padded
@@ -5204,6 +5227,16 @@ class GPUModelRunner(
                 runtime_mode,
                 batch_descs,
             ) in self.cudagraph_dispatcher.get_capture_descs():
+                # # int8 KV decode uses variable-length physical_page_indices;
+                # # FULL cudagraph is disabled at dispatch time, so skip FULL
+                # # decode capture to avoid assertion in _dummy_run.
+                # if (
+                #     runtime_mode == CUDAGraphMode.FULL
+                #     and batch_descs
+                #     and batch_descs[0].uniform
+                #     and self.cache_config.cache_dtype.startswith("int8")
+                # ):
+                #     continue
                 self._capture_cudagraphs(
                     batch_descriptors=batch_descs,
                     cudagraph_runtime_mode=runtime_mode,
