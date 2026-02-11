@@ -266,7 +266,8 @@ class TritonAttentionBackend(AttentionBackend):
         "fp8",
         "fp8_e4m3",
         "fp8_e5m2",
-        "int8"
+        "int8",
+        "int4",
     ]
 
     @staticmethod
@@ -391,6 +392,7 @@ class TritonAttentionImpl(AttentionImpl):
         self.attn_type = attn_type
         self.fp8_dtype = current_platform.fp8_dtype()
         self.int8_dtype = torch.int8
+        self.int4_dtype = torch.uint8  # int4 is packed into uint8
 
         self.sinks = sinks
         if sinks is not None:
@@ -477,6 +479,11 @@ class TritonAttentionImpl(AttentionImpl):
             if key_cache.dtype != self.int8_dtype:
                 key_cache = key_cache.view(self.int8_dtype)
                 value_cache = value_cache.view(self.int8_dtype)
+        elif self.kv_cache_dtype.startswith("int4"):
+            # int4 is packed into uint8, 2 int4 values per byte
+            if key_cache.dtype != self.int4_dtype:
+                key_cache = key_cache.view(self.int4_dtype)
+                value_cache = value_cache.view(self.int4_dtype)
 
         cu_seqlens_q = attn_metadata.query_start_loc
         seqused_k = attn_metadata.seq_lens
@@ -598,6 +605,25 @@ class TritonAttentionImpl(AttentionImpl):
                 # triton kernel does not support uint8 kv_cache
                 #  (because some explicit casts (e.g. float8_e4m3fnuz)
                 #   are not supported)
+            elif self.kv_cache_dtype.startswith("int8"):
+                key_cache = key_cache.view(self.int8_dtype)
+                value_cache = value_cache.view(self.int8_dtype)
+                # Validate INT8 scales to help diagnose accuracy issues
+                # k_scale_val = layer._k_scale.item() if hasattr(layer._k_scale, 'item') else float(layer._k_scale)
+                # v_scale_val = layer._v_scale.item() if hasattr(layer._v_scale, 'item') else float(layer._v_scale)
+                # if k_scale_val == 1.0 or v_scale_val == 1.0:
+                #     logger.warning_once(
+                #         f"INT8 KV cache update with scale k={k_scale_val:.6f}, v={v_scale_val:.6f}. "
+                #         "Scale=1.0 is likely incorrect for INT8 quantization. "
+                #         "Expected: scale = absmax(key/value) / 127. "
+                #         "This will cause value overflow, truncation, and severe accuracy degradation. "
+                #         "To fix: (1) Use calibrated checkpoint, (2) Set calculate_kv_scales=True, "
+                #         "or (3) Switch to FP8 KV cache (recommended)."
+                #     )
+            elif self.kv_cache_dtype.startswith("int4"):
+                # int4 is packed into uint8, 2 int4 values per byte
+                key_cache = key_cache.view(self.int4_dtype)
+                value_cache = value_cache.view(self.int4_dtype)
             triton_reshape_and_cache_flash(
                 key,
                 value,
