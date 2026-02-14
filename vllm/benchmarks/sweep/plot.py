@@ -24,7 +24,24 @@ try:
 except ImportError:
     plt = PlaceholderModule("matplotlib").placeholder_attr("pyplot")
     pd = PlaceholderModule("pandas")
-    seaborn = PlaceholderModule("seaborn")
+    sns = PlaceholderModule("seaborn")
+
+# Re-import if PlaceholderModule was used but module is now available
+if isinstance(pd, PlaceholderModule):
+    try:
+        import pandas as pd  # noqa: F811
+    except ImportError:
+        pass
+if isinstance(plt, PlaceholderModule):
+    try:
+        import matplotlib.pyplot as plt  # noqa: F811
+    except ImportError:
+        pass
+if isinstance(sns, PlaceholderModule):
+    try:
+        import seaborn as sns  # noqa: F811
+    except ImportError:
+        pass
 
 
 @dataclass
@@ -494,6 +511,7 @@ class SweepPlotArgs:
         row_by = [] if not args.row_by else args.row_by.split(",")
         col_by = [] if not args.col_by else args.col_by.split(",")
         fig_by = [] if not args.fig_by else args.fig_by.split(",")
+        var_y = args.var_y if isinstance(args.var_y, str) else args.var_y[0]
 
         return cls(
             output_dir=output_dir,
@@ -503,7 +521,7 @@ class SweepPlotArgs:
             col_by=col_by,
             curve_by=curve_by,
             var_x=args.var_x,
-            var_y=args.var_y,
+            var_y=var_y,
             filter_by=PlotFilters.parse_str(args.filter_by),
             bin_by=PlotBinners.parse_str(args.bin_by),
             scale_x=args.scale_x,
@@ -568,8 +586,11 @@ class SweepPlotArgs:
         parser.add_argument(
             "--var-y",
             type=str,
-            default="p99_e2el_ms",
-            help="The variable for the y-axis",
+            nargs="+",
+            default=["p99_e2el_ms"],
+            metavar="VAR",
+            help="The variable(s) for the y-axis. Pass multiple to generate one "
+            "figure per y (e.g. --var-y median_e2el_ms p99_e2el_ms).",
         )
         parser.add_argument(
             "--filter-by",
@@ -665,7 +686,16 @@ def run_main(args: SweepPlotArgs):
 
 
 def main(args: argparse.Namespace):
-    run_main(SweepPlotArgs.from_cli_args(args))
+    var_y_list = args.var_y if isinstance(args.var_y, list) else [args.var_y]
+    original_fig_name = args.fig_name
+    for var_y in var_y_list:
+        args.var_y = var_y
+        args.fig_name = (
+            f"{original_fig_name}_{var_y}"
+            if len(var_y_list) > 1
+            else original_fig_name
+        )
+        run_main(SweepPlotArgs.from_cli_args(args))
 
 
 if __name__ == "__main__":

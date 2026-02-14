@@ -95,7 +95,12 @@ class ParameterSweepItem(dict[str, object]):
     # In CLI, we prefer "-"
     def _iter_cmd_key_candidates(self, param_key: str):
         for k in reversed(tuple(self._iter_param_key_candidates(param_key))):
-            yield "--" + k
+            # Handle short forms: cc -> -cc (short for --compilation-config)
+            # and ac -> -ac (short for --attention-config)
+            if k.startswith("cc.") or k.startswith("ac."):
+                yield "-" + k
+            else:
+                yield "--" + k
 
     def _normalize_cmd_key(self, param_key: str):
         return next(self._iter_cmd_key_candidates(param_key))

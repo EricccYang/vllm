@@ -1,0 +1,9 @@
+[
+  {  "request_rate": 16 , "num_prompts": 20 },
+  {  "request_rate": 32 , "num_prompts": 20 },
+  {  "request_rate": 64 , "num_prompts": 20 },
+  {  "request_rate": 128 , "num_prompts": 20 },
+  {  "request_rate": 256 , "num_prompts": 20 },
+  {  "request_rate": 512 , "num_prompts": 20 },
+  {  "request_rate": 1024 , "num_prompts": 20 }
+]

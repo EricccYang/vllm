@@ -1,0 +1,10 @@
+[
+    {
+      "_benchmark_name": "no_fusion",
+      "cc.pass_config.enable_qk_norm_rope_fusion": false
+    },
+    {
+      "_benchmark_name": "fusion",
+      "cc.pass_config.enable_qk_norm_rope_fusion": true
+    }
+  ]
