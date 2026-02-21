@@ -140,6 +140,10 @@ class PostGradPassManager(CustomGraphPass):  # type: ignore[misc]
                 self.passes += [AttnFusionPass(config)]
 
             if self.pass_config.enable_qk_norm_rope_fusion:
+
+                logger.info(
+                    "PassManager: registering QKNormRoPEFusionPass (qk_norm_rope_fusion enabled)"
+                )
                 self.passes += [SplitCoalescingPass(config)]
                 self.passes += [QKNormRoPEFusionPass(config)]
 

@@ -2,6 +2,7 @@
 # SPDX-FileCopyrightText: Copyright contributors to the vLLM project
 
 from collections.abc import Callable
+from pathlib import Path
 from typing import ParamSpec
 
 import torch
@@ -15,7 +16,7 @@ from vllm.logger import init_logger
 from vllm.model_executor.layers.attention import Attention
 from vllm.model_executor.layers.rotary_embedding import RotaryEmbedding
 
-from ..inductor_pass import enable_fake_mode
+from ..inductor_pass import enable_fake_mode, get_pass_context
 from ..vllm_inductor_pass import VllmInductorPass, VllmPatternMatcherPass
 from .matcher_utils import MatcherRMSNorm, MatcherRotaryEmbedding
 from .rms_quant_fusion import empty_bf16, empty_fp32, empty_i64
@@ -190,6 +191,7 @@ class QKNormRoPEFusionPass(VllmPatternMatcherPass):
     @enable_fake_mode
     def __init__(self, config: VllmConfig) -> None:
         super().__init__(config)
+        self._vllm_config = config
         self.patterns: PatternMatcherPass = PatternMatcherPass(
             pass_name="qk_norm_rope_fusion_pass"
         )
@@ -235,10 +237,53 @@ class QKNormRoPEFusionPass(VllmPatternMatcherPass):
 
         self.dump_patterns(config, self.patterns)
 
+    def _dump_graph_when_no_match(self, graph: fx.Graph) -> None:
+        """When no pattern matched, dump the current graph to inspect structure."""
+        try:
+            gm = getattr(graph, "owning_module", None)
+            if gm is None:
+                gm = fx.GraphModule(torch.nn.Module(), graph)
+            readable = gm.print_readable(print_output=False)
+        except Exception as e:  # noqa: BLE001
+            logger.warning_once(
+                "QK Norm+RoPE fusion: failed to dump graph when no match: %s", e
+            )
+            return
+        dump_dir: Path | None = None
+        if self._vllm_config is not None:
+            dump_dir = self._vllm_config.compile_debug_dump_path()
+        if dump_dir is None:
+            dump_dir = Path("/tmp/vllm_qk_norm_rope_fusion_no_match")
+        dump_dir = Path(dump_dir)
+        dump_dir.mkdir(parents=True, exist_ok=True)
+        compile_range = get_pass_context().compile_range
+        file_path = dump_dir / f"graph_no_match_{compile_range}.txt"
+        try:
+            file_path.write_text(readable, encoding="utf-8")
+            logger.warning_once(
+                "QK Norm+RoPE fusion: no sites matched in this subgraph; graph dumped to %s. "
+                "If other log lines show 'Fused QK Norm+RoPE on N sites', fusion did apply in those subgraphs.",
+                file_path,
+            )
+        except OSError as e:
+            logger.warning_once(
+                "QK Norm+RoPE fusion: could not write graph dump to %s: %s",
+                file_path,
+                e,
+            )
+
     @VllmInductorPass.time_and_log
     def __call__(self, graph: fx.Graph) -> None:
         self.matched_count = self.patterns.apply(graph)
-        logger.debug("Fused QK Norm+RoPE on %s sites", self.matched_count)
+        if self.matched_count > 0:
+            logger.info("Fused QK Norm+RoPE on %s sites", self.matched_count)
+        else:
+            self._dump_graph_when_no_match(graph)
+            logger.warning_once(
+                "QK Norm+RoPE fusion: no sites matched in this subgraph (others may have matched; "
+                "see 'Fused QK Norm+RoPE on N sites' above). Causes: graph partition, FP8/quantization, "
+                "or different RoPE/norm structure."
+            )
 
     def uuid(self) -> str:
         return VllmInductorPass.hash_source(self, QkNormRopePattern)

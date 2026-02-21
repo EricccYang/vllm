@@ -237,6 +237,10 @@ class PassConfig:
                 "CUDA or ROCm. The fusion will be disabled."
             )
             self.enable_qk_norm_rope_fusion = False
+        if self.enable_qk_norm_rope_fusion:
+            logger.info(
+                "QK Norm+RoPE fusion enabled (pass_config.enable_qk_norm_rope_fusion=True)"
+            )
         if self.fuse_act_padding and not current_platform.is_rocm():
             logger.warning_once(
                 "Padding fusion enabled but the current platform is not ROCm. "
