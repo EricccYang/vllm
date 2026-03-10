@@ -353,6 +353,7 @@ def fused_qk_norm_rope(
     cos_sin_cache: torch.Tensor,
     is_neox: bool,
     position_ids: torch.Tensor,
+    block_size: int = 256,
 ) -> None:
     torch.ops._C.fused_qk_norm_rope(
         qkv,
@@ -366,6 +367,160 @@ def fused_qk_norm_rope(
         cos_sin_cache,
         is_neox,
         position_ids,
+        block_size,
+    )
+
+
+def fused_qk_norm_rope_improve(
+    qkv: torch.Tensor,
+    num_heads_q: int,
+    num_heads_k: int,
+    num_heads_v: int,
+    head_dim: int,
+    eps: float,
+    q_weight: torch.Tensor,
+    k_weight: torch.Tensor,
+    cos_sin_cache: torch.Tensor,
+    is_neox: bool,
+    position_ids: torch.Tensor,
+    block_size: int = 256,
+) -> None:
+    torch.ops._C.fused_qk_norm_rope_improve(
+        qkv,
+        num_heads_q,
+        num_heads_k,
+        num_heads_v,
+        head_dim,
+        eps,
+        q_weight,
+        k_weight,
+        cos_sin_cache,
+        is_neox,
+        position_ids,
+        block_size,
+    )
+
+
+def fused_qk_norm_rope_improve_2_token_heads(
+    qkv: torch.Tensor,
+    num_heads_q: int,
+    num_heads_k: int,
+    num_heads_v: int,
+    head_dim: int,
+    eps: float,
+    q_weight: torch.Tensor,
+    k_weight: torch.Tensor,
+    cos_sin_cache: torch.Tensor,
+    is_neox: bool,
+    position_ids: torch.Tensor,
+    block_size: int = 256,
+    token_heads_per_warp: int = 0,  # 0 = auto-select via heuristic
+) -> None:
+    torch.ops._C.fused_qk_norm_rope_improve_2_token_heads(
+        qkv,
+        num_heads_q,
+        num_heads_k,
+        num_heads_v,
+        head_dim,
+        eps,
+        q_weight,
+        k_weight,
+        cos_sin_cache,
+        is_neox,
+        position_ids,
+        block_size,
+        token_heads_per_warp,
+    )
+
+
+def fused_qk_norm_rope_compute(
+    qkv: torch.Tensor,
+    num_heads_q: int,
+    num_heads_k: int,
+    num_heads_v: int,
+    head_dim: int,
+    eps: float,
+    q_weight: torch.Tensor,
+    k_weight: torch.Tensor,
+    is_neox: bool,
+    position_ids: torch.Tensor,
+    block_size: int = 256,
+    rope_base: float = 10000.0,
+    rope_factor: float = 1.0,
+    rope_low: float = 0.0,
+    rope_high: float = 0.0,
+    attention_factor: float = 1.0,
+) -> None:
+    """Fused QK-norm + RoPE, computing cos/sin on-the-fly (no cache tensor).
+
+    Supports standard RoPE (rope_factor=1) and YaRN-style scaling
+    (rope_factor != 1, with rope_low/high linear-ramp boundaries and an
+    optional attention_factor multiplier).
+    """
+    torch.ops._C.fused_qk_norm_rope_compute(
+        qkv,
+        num_heads_q,
+        num_heads_k,
+        num_heads_v,
+        head_dim,
+        eps,
+        q_weight,
+        k_weight,
+        is_neox,
+        position_ids,
+        block_size,
+        rope_base,
+        rope_factor,
+        rope_low,
+        rope_high,
+        attention_factor,
+    )
+
+
+def fused_qk_norm_rope_compute_n_token_heads(
+    qkv: torch.Tensor,
+    num_heads_q: int,
+    num_heads_k: int,
+    num_heads_v: int,
+    head_dim: int,
+    eps: float,
+    q_weight: torch.Tensor,
+    k_weight: torch.Tensor,
+    is_neox: bool,
+    position_ids: torch.Tensor,
+    block_size: int = 256,
+    token_heads_per_warp: int = 2,
+    rope_base: float = 10000.0,
+    rope_factor: float = 1.0,
+    rope_low: float = 0.0,
+    rope_high: float = 0.0,
+    attention_factor: float = 1.0,
+) -> None:
+    """N-heads-per-warp variant of fused_qk_norm_rope_compute.
+
+    cos/sin are computed once per warp (same token → same position) and reused
+    across all HEADS_PER_WARP heads, overlapped with the async QKV load.
+    Shared memory holds QKV data only (no cos/sin region).
+    token_heads_per_warp must be 2, 4, or 8.
+    """
+    torch.ops._C.fused_qk_norm_rope_compute_n_token_heads(
+        qkv,
+        num_heads_q,
+        num_heads_k,
+        num_heads_v,
+        head_dim,
+        eps,
+        q_weight,
+        k_weight,
+        is_neox,
+        position_ids,
+        block_size,
+        token_heads_per_warp,
+        rope_base,
+        rope_factor,
+        rope_low,
+        rope_high,
+        attention_factor,
     )
 
 

@@ -23,7 +23,8 @@ from .rms_quant_fusion import empty_bf16, empty_fp32, empty_i64
 
 logger = init_logger(__name__)
 
-FUSED_QK_ROPE_OP = torch.ops._C.fused_qk_norm_rope.default
+# FUSED_QK_ROPE_OP = torch.ops._C.fused_qk_norm_rope.default
+FUSED_QK_ROPE_OP = torch.ops._C.fused_qk_norm_rope_improve_2_token_heads.default
 
 P = ParamSpec("P")
 
@@ -165,6 +166,8 @@ class QkNormRopePattern:
                 cos_sin_cache=cos_sin_cache,
                 is_neox=self.is_neox,
                 position_ids=positions.view(-1),
+                block_size=256,
+                token_heads_per_warp=0
             )
             result_qkv = result[1]
 
@@ -286,4 +289,7 @@ class QKNormRoPEFusionPass(VllmPatternMatcherPass):
             )
 
     def uuid(self) -> str:
-        return VllmInductorPass.hash_source(self, QkNormRopePattern)
+        # Include FUSED_QK_ROPE_OP so cache key changes when switching ops;
+        # otherwise the class source only references the name, not the value.
+        base = VllmInductorPass.hash_source(self, QkNormRopePattern)
+        return f"{base}_{FUSED_QK_ROPE_OP}"

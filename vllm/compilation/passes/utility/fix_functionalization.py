@@ -145,8 +145,8 @@ class FixFunctionalizationPass(VllmInductorPass):
                         "input_global_scale",
                     ),
                 )
-            # Defunctionalize fused_qk_norm_rope to remove higher-order wrapper.
-            elif at_target == torch.ops._C.fused_qk_norm_rope.default:
+            # Defunctionalize fused_qk_norm_rope_improve_2_token_heads to remove higher-order wrapper.
+            elif at_target == torch.ops._C.fused_qk_norm_rope_improve_2_token_heads.default:
                 mutated_args = {1: "qkv"}
                 args = (
                     "qkv",
@@ -160,6 +160,8 @@ class FixFunctionalizationPass(VllmInductorPass):
                     "cos_sin_cache",
                     "is_neox",
                     "position_ids",
+                    "block_size",
+                    "token_heads_per_warp",
                 )
                 self.defunctionalize(graph, node, mutated_args=mutated_args, args=args)
             else:

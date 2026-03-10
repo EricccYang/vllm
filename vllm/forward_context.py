@@ -402,12 +402,13 @@ def set_forward_context(
             # time measurement is in milliseconds
             batchsize_forward_time[batchsize].append((now - forward_start_time) * 1000)
             if now - last_logging_time > batchsize_logging_interval:
+                if now - last_logging_time > batchsize_logging_interval * 2:
+                    batchsize_forward_time.clear()
+                    batchsize_forward_time[batchsize].append(
+                        (now - forward_start_time) * 1000)
                 last_logging_time = now
                 forward_stats = []
                 for bs, times in batchsize_forward_time.items():
-                    if len(times) <= 1:
-                        # can be cudagraph / profiling run
-                        continue
                     medium = torch.quantile(torch.tensor(times), q=0.5).item()
                     medium = round(medium, 2)
                     forward_stats.append((bs, len(times), medium))
@@ -420,3 +421,4 @@ def set_forward_context(
                         ),
                         forward_stats,
                     )
+                batchsize_forward_time.clear()

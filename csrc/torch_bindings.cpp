@@ -167,8 +167,43 @@ TORCH_LIBRARY_EXPAND(TORCH_EXTENSION_NAME, ops) {
       "fused_qk_norm_rope(Tensor! qkv, int num_heads_q, "
       "int num_heads_k, int num_heads_v, int head_dim, float eps, "
       "Tensor q_weight, Tensor k_weight, Tensor cos_sin_cache, "
-      "bool is_neox, Tensor position_ids) -> ()");
+      "bool is_neox, Tensor position_ids, int block_size=256) -> ()");
   ops.impl("fused_qk_norm_rope", torch::kCUDA, &fused_qk_norm_rope);
+
+  ops.def(
+      "fused_qk_norm_rope_improve(Tensor! qkv, int num_heads_q, "
+      "int num_heads_k, int num_heads_v, int head_dim, float eps, "
+      "Tensor q_weight, Tensor k_weight, Tensor cos_sin_cache, "
+      "bool is_neox, Tensor position_ids, int block_size=256) -> ()");
+  ops.impl("fused_qk_norm_rope_improve", torch::kCUDA, &fused_qk_norm_rope_improve);
+
+  ops.def(
+      "fused_qk_norm_rope_improve_2_token_heads(Tensor! qkv, int num_heads_q, "
+      "int num_heads_k, int num_heads_v, int head_dim, float eps, "
+      "Tensor q_weight, Tensor k_weight, Tensor cos_sin_cache, "
+      "bool is_neox, Tensor position_ids, int block_size=256, int token_heads_per_warp=2) -> ()");
+  ops.impl("fused_qk_norm_rope_improve_2_token_heads", torch::kCUDA,
+           &fused_qk_norm_rope_improve_2_token_heads);
+
+  // Compute-sin/cos variants: sin/cos computed on-the-fly, no cache tensor.
+  ops.def(
+      "fused_qk_norm_rope_compute(Tensor! qkv, int num_heads_q, "
+      "int num_heads_k, int num_heads_v, int head_dim, float eps, "
+      "Tensor q_weight, Tensor k_weight, bool is_neox, Tensor position_ids, "
+      "int block_size=256, float rope_base=10000.0, float rope_factor=1.0, "
+      "float rope_low=0.0, float rope_high=0.0, float attention_factor=1.0) -> ()");
+  ops.impl("fused_qk_norm_rope_compute", torch::kCUDA,
+           &fused_qk_norm_rope_compute);
+
+  ops.def(
+      "fused_qk_norm_rope_compute_n_token_heads(Tensor! qkv, int num_heads_q, "
+      "int num_heads_k, int num_heads_v, int head_dim, float eps, "
+      "Tensor q_weight, Tensor k_weight, bool is_neox, Tensor position_ids, "
+      "int block_size=256, int token_heads_per_warp=2, float rope_base=10000.0, "
+      "float rope_factor=1.0, float rope_low=0.0, float rope_high=0.0, "
+      "float attention_factor=1.0) -> ()");
+  ops.impl("fused_qk_norm_rope_compute_n_token_heads", torch::kCUDA,
+           &fused_qk_norm_rope_compute_n_token_heads);
 
   // Apply repetition penalties to logits in-place
   ops.def(

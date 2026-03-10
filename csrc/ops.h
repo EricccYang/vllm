@@ -96,7 +96,41 @@ void fused_qk_norm_rope(torch::Tensor& qkv, int64_t num_heads_q,
                         int64_t num_heads_k, int64_t num_heads_v,
                         int64_t head_dim, double eps, torch::Tensor& q_weight,
                         torch::Tensor& k_weight, torch::Tensor& cos_sin_cache,
-                        bool is_neox, torch::Tensor& position_ids);
+                        bool is_neox, torch::Tensor& position_ids,
+                        int64_t block_size);
+
+void fused_qk_norm_rope_improve(torch::Tensor& qkv, int64_t num_heads_q,
+                                int64_t num_heads_k, int64_t num_heads_v,
+                                int64_t head_dim, double eps,
+                                torch::Tensor& q_weight, torch::Tensor& k_weight,
+                                torch::Tensor& cos_sin_cache, bool is_neox,
+                                torch::Tensor& position_ids, int64_t block_size);
+
+void fused_qk_norm_rope_improve_2_token_heads(
+    torch::Tensor& qkv, int64_t num_heads_q, int64_t num_heads_k,
+    int64_t num_heads_v, int64_t head_dim, double eps,
+    torch::Tensor& q_weight, torch::Tensor& k_weight,
+    torch::Tensor& cos_sin_cache, bool is_neox,
+    torch::Tensor& position_ids, int64_t block_size,
+    int64_t token_heads_per_warp);
+
+// Compute-sin/cos variants (no cache; sin/cos computed on-the-fly via
+// __sincosf).  rope_factor/low/high/attention_factor enable YaRN scaling.
+void fused_qk_norm_rope_compute(
+    torch::Tensor& qkv, int64_t num_heads_q, int64_t num_heads_k,
+    int64_t num_heads_v, int64_t head_dim, double eps,
+    torch::Tensor& q_weight, torch::Tensor& k_weight, bool is_neox,
+    torch::Tensor& position_ids, int64_t block_size, double rope_base,
+    double rope_factor, double rope_low, double rope_high,
+    double attention_factor);
+
+void fused_qk_norm_rope_compute_n_token_heads(
+    torch::Tensor& qkv, int64_t num_heads_q, int64_t num_heads_k,
+    int64_t num_heads_v, int64_t head_dim, double eps,
+    torch::Tensor& q_weight, torch::Tensor& k_weight, bool is_neox,
+    torch::Tensor& position_ids, int64_t block_size,
+    int64_t token_heads_per_warp, double rope_base, double rope_factor,
+    double rope_low, double rope_high, double attention_factor);
 
 void apply_repetition_penalties_(torch::Tensor& logits,
                                  const torch::Tensor& prompt_mask,

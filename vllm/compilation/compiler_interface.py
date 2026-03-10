@@ -636,6 +636,8 @@ def set_inductor_config(config: dict[str, Any], compile_range: Range) -> None:
         config["coordinate_descent_tuning"] = (
             envs.VLLM_ENABLE_INDUCTOR_COORDINATE_DESCENT_TUNING
         )
+    if envs.VLLM_DEBUG_DUMP_PATH is not None:
+        torch._inductor.config.triton.store_cubin = True
 
 
 def set_functorch_config() -> None:

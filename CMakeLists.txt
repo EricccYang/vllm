@@ -291,6 +291,8 @@ set(VLLM_EXT_SRC
   "csrc/activation_kernels.cu"
   "csrc/layernorm_kernels.cu"
   "csrc/fused_qknorm_rope_kernel.cu"
+  "csrc/fused_qknorm_rope_improve_kernel.cu"
+  "csrc/fused_qknorm_rope_compute_kernel.cu"
   "csrc/layernorm_quant_kernels.cu"
   "csrc/sampler.cu"
   "csrc/topk.cu"
@@ -940,6 +942,14 @@ define_extension_target(
 # driver API. This causes problems when linking with earlier versions of CUDA.
 # Setting this variable sidesteps the issue by calling the driver directly.
 target_compile_definitions(_C PRIVATE CUTLASS_ENABLE_DIRECT_CUDA_DRIVER_CALL=1)
+
+# NVTX for profiling (e.g. fused_qknorm_rope NVTX ranges in nsys)
+if(VLLM_GPU_LANG STREQUAL "CUDA")
+  find_library(NVTX_LIB nvtx)
+  if(NVTX_LIB)
+    target_link_libraries(_C PRIVATE ${NVTX_LIB})
+  endif()
+endif()
 
 #
 # _moe_C extension

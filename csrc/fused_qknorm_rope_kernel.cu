@@ -21,6 +21,9 @@
 #include <torch/cuda.h>
 #include <c10/cuda/CUDAGuard.h>
 
+#define VLLM_NVTX_RANGE_PUSH(name) ((void)0)
+#define VLLM_NVTX_RANGE_POP() ((void)0)
+
 #include "cuda_compat.h"
 #include "dispatch_utils.h"
 #include "type_convert.cuh"
@@ -185,10 +188,10 @@ __global__ void fusedQKNormRopeKernel(
     }
     int offsetThread = offsetWarp + laneId * numElemsPerThread;
 
-    // Sum of squares for RMSNorm
+    // === Part 1: QK Norm (load, warp reduce, RMS norm, scale by weight).
+    // For per-part timing in one kernel use Nsight Compute (ncu): profile this
+    // kernel and check Source view cycle attribution for this block vs Part 2.
     float sumOfSquares = 0.0f;
-
-    // Load.
     {
       vec_T vec = *reinterpret_cast<vec_T const*>(&qkv[offsetThread]);
       constexpr int num_packed_elems = elemSizeBytes / sizeof(T2_in);
@@ -221,7 +224,8 @@ __global__ void fusedQKNormRopeKernel(
       elements[i] *= rms_rcp * weight;
     }
 
-    // Apply RoPE to normalized elements
+    // === Part 2: RoPE (apply rotation to normalized Q/K, then store).
+    // NCU Source view: cycles here vs Part 1 give the ratio within this kernel.
     float elements2[numElemsPerThread];  // Additional buffer required for RoPE.
 
     int64_t pos_id = position_ids[tokenIdx];
@@ -319,17 +323,22 @@ void launchFusedQKNormRope(void* qkv, int const num_tokens,
                            int const rotary_dim, float const eps,
                            void const* q_weight, void const* k_weight,
                            void const* cos_sin_cache, bool const interleave,
-                           int64_t const* position_ids, cudaStream_t stream) {
-  constexpr int blockSize = 256;
+                           int64_t const* position_ids, int const block_size,
+                           cudaStream_t stream) {
+  TORCH_CHECK(block_size == 128 || block_size == 256 || block_size == 512,
+              "block_size must be 128, 256, or 512, got ", block_size);
+  TORCH_CHECK(block_size % 32 == 0,
+              "block_size must be divisible by 32, got ", block_size);
 
-  int const warpsPerBlock = blockSize / 32;
+  int const warpsPerBlock = block_size / 32;
   int const totalQKHeads = num_heads_q + num_heads_k;
   int const totalWarps = num_tokens * totalQKHeads;
 
   int const gridSize = common::divUp(totalWarps, warpsPerBlock);
   dim3 gridDim(gridSize);
-  dim3 blockDim(blockSize);
+  dim3 blockDim(block_size);
 
+  VLLM_NVTX_RANGE_PUSH("FusedQKNormRope");
   switch (head_dim) {
     case 64:
       DISPATCH_INTERLEAVE(interleave, INTERLEAVE, {
@@ -359,6 +368,7 @@ void launchFusedQKNormRope(void* qkv, int const num_tokens,
       TORCH_CHECK(false,
                   "Unsupported head dimension for fusedQKNormRope: ", head_dim);
   }
+  VLLM_NVTX_RANGE_POP();
 }
 }  // namespace tensorrt_llm::kernels
 
@@ -374,7 +384,8 @@ void fused_qk_norm_rope(
     torch::Tensor& k_weight,  // RMSNorm weights for key [head_dim]
     torch::Tensor& cos_sin_cache,  // Cos/sin cache [max_position, head_dim]
     bool is_neox,                  // Whether RoPE is applied in Neox style
-    torch::Tensor& position_ids    // Position IDs for RoPE [num_tokens]
+    torch::Tensor& position_ids,   // Position IDs for RoPE [num_tokens]
+    int64_t block_size             // Block size for kernel launch (128/256/512)
 ) {
   // Input validation
   CHECK_INPUT(qkv);
@@ -430,7 +441,7 @@ void fused_qk_norm_rope(
               q_weight.data_ptr(), k_weight.data_ptr(),
               cos_sin_cache.data_ptr(), !is_neox,
               reinterpret_cast<int64_t const*>(position_ids.data_ptr()),
-              stream);
+              static_cast<int>(block_size), stream);
         });
   });
 }

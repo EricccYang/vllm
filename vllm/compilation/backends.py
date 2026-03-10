@@ -857,6 +857,10 @@ class VllmBackend:
 
         self._log_compilation_config()
 
+        # Configure pass manager before computing cache key so that
+        # pass_manager.uuid() can use pass_config and the full pass list.
+        self.configure_post_pass()
+
         # Minimal hashing here with existing utilities, reused below.
 
         env_factors = envs.compile_factors()
@@ -891,7 +895,18 @@ class VllmBackend:
             # that affects the compilation. if none of the factors change,
             # the cache dir will be the same so that we can reuse the compiled
             # graph.
-            factors = [env_hash, config_hash, code_hash, compiler_hash]
+            # Include pass_manager.uuid() so that changes in custom passes
+            # (e.g. which fused op is used) invalidate the cache.
+            # pass_manager.uuid() requires pass_context; use a dummy range.
+            with pass_context(Range(0, 0)):
+                pass_uuid = self.pass_manager.uuid()
+            factors = [
+                env_hash,
+                config_hash,
+                code_hash,
+                compiler_hash,
+                pass_uuid,
+            ]
             # Use SHA-256 for cache key hashing to be consistent across
             # compute_hash functions. Truncate for a short cache dir name.
             hash_key = hashlib.sha256(str(factors).encode()).hexdigest()[:10]
@@ -924,6 +939,9 @@ class VllmBackend:
         self.compiler_manager.initialize_cache(
             local_cache_dir, disable_cache, self.prefix
         )
+
+        if self.compilation_config.debug_dump_path:
+            torch._inductor.config.triton.store_cubin = True
 
         # Reuses existing cache key
 
@@ -990,7 +1008,7 @@ class VllmBackend:
         assert not self._called, "VllmBackend can only be called once"
 
         self.graph = graph
-        self.configure_post_pass()
+        # configure_post_pass() already called at start of __call__ for cache key
 
         if self.compilation_config.use_inductor_graph_partition:
             # Let Inductor decide partitioning; avoid FX-level pre-splitting.
