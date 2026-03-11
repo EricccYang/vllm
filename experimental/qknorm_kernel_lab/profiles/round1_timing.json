@@ -1,0 +1,7 @@
+{
+  "kernel": "fused_qk_norm_rope_improve",
+  "avg_ms": 0.012715840339660644,
+  "tokens": 512,
+  "iters": 100,
+  "warmup": 20
+}

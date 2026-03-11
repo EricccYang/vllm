@@ -1,0 +1,96 @@
+{
+  "fn": "fused_qk_norm_rope_improve",
+  "iters": 200,
+  "results": [
+    {
+      "block_size": 128,
+      "tokens": 1,
+      "avg_ms": 0.005627840161323548
+    },
+    {
+      "block_size": 128,
+      "tokens": 8,
+      "avg_ms": 0.005798400044441223
+    },
+    {
+      "block_size": 128,
+      "tokens": 64,
+      "avg_ms": 0.01845199942588806
+    },
+    {
+      "block_size": 128,
+      "tokens": 256,
+      "avg_ms": 0.009377440214157104
+    },
+    {
+      "block_size": 128,
+      "tokens": 512,
+      "avg_ms": 0.014462239742279052
+    },
+    {
+      "block_size": 128,
+      "tokens": 2048,
+      "avg_ms": 0.1087003231048584
+    },
+    {
+      "block_size": 256,
+      "tokens": 1,
+      "avg_ms": 0.005629119873046875
+    },
+    {
+      "block_size": 256,
+      "tokens": 8,
+      "avg_ms": 0.017893760204315184
+    },
+    {
+      "block_size": 256,
+      "tokens": 64,
+      "avg_ms": 0.006360160112380981
+    },
+    {
+      "block_size": 256,
+      "tokens": 256,
+      "avg_ms": 0.009401280283927917
+    },
+    {
+      "block_size": 256,
+      "tokens": 512,
+      "avg_ms": 0.025519840717315674
+    },
+    {
+      "block_size": 256,
+      "tokens": 2048,
+      "avg_ms": 0.11356672286987304
+    },
+    {
+      "block_size": 512,
+      "tokens": 1,
+      "avg_ms": 0.0177894401550293
+    },
+    {
+      "block_size": 512,
+      "tokens": 8,
+      "avg_ms": 0.005795360207557678
+    },
+    {
+      "block_size": 512,
+      "tokens": 64,
+      "avg_ms": 0.006456959843635559
+    },
+    {
+      "block_size": 512,
+      "tokens": 256,
+      "avg_ms": 0.009398080110549926
+    },
+    {
+      "block_size": 512,
+      "tokens": 512,
+      "avg_ms": 0.025464160442352293
+    },
+    {
+      "block_size": 512,
+      "tokens": 2048,
+      "avg_ms": 0.12329584121704101
+    }
+  ]
+}

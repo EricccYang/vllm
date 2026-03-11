@@ -1,0 +1,14 @@
+{
+  "timing": {
+    "kernel": "fused_qk_norm_rope_improve",
+    "avg_ms": 0.012715840339660644,
+    "tokens": 512,
+    "iters": 100,
+    "warmup": 20
+  },
+  "ncu_metrics": {},
+  "notes": [
+    "Round1 baseline from isolated lab kernel copy.",
+    "Use this as reference before editing src/fused_qknorm_rope_improve_kernel.cu in lab."
+  ]
+}

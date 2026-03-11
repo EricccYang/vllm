@@ -1,0 +1,61 @@
+NCU Instruction Density Results
+================================
+Config: 32Q + 4K = 36 QK heads, head_dim=128, bf16, block_size=256
+
+--- Grid ≈ 5 (1 wave, 5/132 SMs) ---
+=== 1h@1t_g5: hpw=1 tokens=1 ===
+"0","32217","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernel<BFloat16, BFloat16, 128, 1>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(5, 1, 1)","0","9.0","Command line profiler metrics","dram__bytes.sum","byte","15872"
+"0","32217","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernel<BFloat16, BFloat16, 128, 1>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(5, 1, 1)","0","9.0","Command line profiler metrics","gpu__time_duration.sum","ns","6656"
+"0","32217","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernel<BFloat16, BFloat16, 128, 1>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(5, 1, 1)","0","9.0","Command line profiler metrics","l1tex__t_bytes.sum","byte","74880"
+"0","32217","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernel<BFloat16, BFloat16, 128, 1>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(5, 1, 1)","0","9.0","Command line profiler metrics","sm__inst_executed.sum","inst","6236"
+
+=== 4h@4t_g5: hpw=4 tokens=4 ===
+"0","32320","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernelNTokenHeads<BFloat16, BFloat16, 128, 1, 4>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(5, 1, 1)","0","9.0","Command line profiler metrics","dram__bytes.sum","byte","49408"
+"0","32320","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernelNTokenHeads<BFloat16, BFloat16, 128, 1, 4>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(5, 1, 1)","0","9.0","Command line profiler metrics","gpu__time_duration.sum","ns","7808"
+"0","32320","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernelNTokenHeads<BFloat16, BFloat16, 128, 1, 4>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(5, 1, 1)","0","9.0","Command line profiler metrics","l1tex__t_bytes.sum","byte","157824"
+"0","32320","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernelNTokenHeads<BFloat16, BFloat16, 128, 1, 4>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(5, 1, 1)","0","9.0","Command line profiler metrics","sm__inst_executed.sum","inst","19644"
+
+=== 8h@7t_g5: hpw=8 tokens=7 ===
+"0","32431","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernelNTokenHeads<BFloat16, BFloat16, 128, 1, 8>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(5, 1, 1)","0","9.0","Command line profiler metrics","dram__bytes.sum","byte","77568"
+"0","32431","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernelNTokenHeads<BFloat16, BFloat16, 128, 1, 8>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(5, 1, 1)","0","9.0","Command line profiler metrics","gpu__time_duration.sum","ns","9248"
+"0","32431","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernelNTokenHeads<BFloat16, BFloat16, 128, 1, 8>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(5, 1, 1)","0","9.0","Command line profiler metrics","l1tex__t_bytes.sum","byte","210784"
+"0","32431","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernelNTokenHeads<BFloat16, BFloat16, 128, 1, 8>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(5, 1, 1)","0","9.0","Command line profiler metrics","sm__inst_executed.sum","inst","29141"
+
+--- Grid ≈ 45 (1 wave, 45/132 SMs) ---
+=== 1h@10t_g45: hpw=1 tokens=10 ===
+"0","32518","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernel<BFloat16, BFloat16, 128, 1>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(45, 1, 1)","0","9.0","Command line profiler metrics","dram__bytes.sum","byte","100864"
+"0","32518","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernel<BFloat16, BFloat16, 128, 1>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(45, 1, 1)","0","9.0","Command line profiler metrics","gpu__time_duration.sum","ns","6848"
+"0","32518","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernel<BFloat16, BFloat16, 128, 1>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(45, 1, 1)","0","9.0","Command line profiler metrics","l1tex__t_bytes.sum","byte","748800"
+"0","32518","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernel<BFloat16, BFloat16, 128, 1>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(45, 1, 1)","0","9.0","Command line profiler metrics","sm__inst_executed.sum","inst","60840"
+
+=== 4h@40t_g45: hpw=4 tokens=40 ===
+"0","32608","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernelNTokenHeads<BFloat16, BFloat16, 128, 1, 4>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(45, 1, 1)","0","9.0","Command line profiler metrics","dram__bytes.sum","byte","390144"
+"0","32608","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernelNTokenHeads<BFloat16, BFloat16, 128, 1, 4>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(45, 1, 1)","0","9.0","Command line profiler metrics","gpu__time_duration.sum","ns","8000"
+"0","32608","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernelNTokenHeads<BFloat16, BFloat16, 128, 1, 4>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(45, 1, 1)","0","9.0","Command line profiler metrics","l1tex__t_bytes.sum","byte","1578240"
+"0","32608","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernelNTokenHeads<BFloat16, BFloat16, 128, 1, 4>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(45, 1, 1)","0","9.0","Command line profiler metrics","sm__inst_executed.sum","inst","194760"
+
+=== 8h@71t_g45: hpw=8 tokens=71 ===
+"0","32681","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernelNTokenHeads<BFloat16, BFloat16, 128, 1, 8>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(45, 1, 1)","0","9.0","Command line profiler metrics","dram__bytes.sum","byte","684544"
+"0","32681","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernelNTokenHeads<BFloat16, BFloat16, 128, 1, 8>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(45, 1, 1)","0","9.0","Command line profiler metrics","gpu__time_duration.sum","ns","9632"
+"0","32681","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernelNTokenHeads<BFloat16, BFloat16, 128, 1, 8>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(45, 1, 1)","0","9.0","Command line profiler metrics","l1tex__t_bytes.sum","byte","2137952"
+"0","32681","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernelNTokenHeads<BFloat16, BFloat16, 128, 1, 8>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(45, 1, 1)","0","9.0","Command line profiler metrics","sm__inst_executed.sum","inst","293653"
+
+--- Grid ≈ 117 (1 wave, 117/132 SMs) ---
+=== 1h@26t_g117: hpw=1 tokens=26 ===
+"0","32767","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernel<BFloat16, BFloat16, 128, 1>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(117, 1, 1)","0","9.0","Command line profiler metrics","dram__bytes.sum","byte","252416"
+"0","32767","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernel<BFloat16, BFloat16, 128, 1>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(117, 1, 1)","0","9.0","Command line profiler metrics","gpu__time_duration.sum","ns","7136"
+"0","32767","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernel<BFloat16, BFloat16, 128, 1>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(117, 1, 1)","0","9.0","Command line profiler metrics","l1tex__t_bytes.sum","byte","1946880"
+"0","32767","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernel<BFloat16, BFloat16, 128, 1>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(117, 1, 1)","0","9.0","Command line profiler metrics","sm__inst_executed.sum","inst","158184"
+
+=== 4h@104t_g117: hpw=4 tokens=104 ===
+"0","32855","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernelNTokenHeads<BFloat16, BFloat16, 128, 1, 4>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(117, 1, 1)","0","9.0","Command line profiler metrics","dram__bytes.sum","byte","996864"
+"0","32855","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernelNTokenHeads<BFloat16, BFloat16, 128, 1, 4>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(117, 1, 1)","0","9.0","Command line profiler metrics","gpu__time_duration.sum","ns","8352"
+"0","32855","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernelNTokenHeads<BFloat16, BFloat16, 128, 1, 4>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(117, 1, 1)","0","9.0","Command line profiler metrics","l1tex__t_bytes.sum","byte","4103424"
+"0","32855","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernelNTokenHeads<BFloat16, BFloat16, 128, 1, 4>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(117, 1, 1)","0","9.0","Command line profiler metrics","sm__inst_executed.sum","inst","506376"
+
+=== 8h@186t_g117: hpw=8 tokens=186 ===
+"0","32933","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernelNTokenHeads<BFloat16, BFloat16, 128, 1, 8>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(117, 1, 1)","0","9.0","Command line profiler metrics","dram__bytes.sum","byte","1774592"
+"0","32933","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernelNTokenHeads<BFloat16, BFloat16, 128, 1, 8>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(117, 1, 1)","0","9.0","Command line profiler metrics","gpu__time_duration.sum","ns","10240"
+"0","32933","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernelNTokenHeads<BFloat16, BFloat16, 128, 1, 8>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(117, 1, 1)","0","9.0","Command line profiler metrics","l1tex__t_bytes.sum","byte","5600832"
+"0","32933","python3.12","127.0.0.1","void fusedQKNormRopeImproveKernelNTokenHeads<BFloat16, BFloat16, 128, 1, 8>(void *, int, int, int, float, const void *, const void *, const void *, const long *, int, int)","1","7","(256, 1, 1)","(117, 1, 1)","0","9.0","Command line profiler metrics","sm__inst_executed.sum","inst","768990"
+

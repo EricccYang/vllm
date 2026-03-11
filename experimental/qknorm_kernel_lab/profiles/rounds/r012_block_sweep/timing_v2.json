@@ -1,0 +1,36 @@
+{
+  "fn": "fused_qk_norm_rope_improve",
+  "iters": 500,
+  "results": [
+    {
+      "block_size": 128,
+      "tokens": 256,
+      "avg_ms": 0.01814668846130371
+    },
+    {
+      "block_size": 128,
+      "tokens": 512,
+      "avg_ms": 0.026528127670288087
+    },
+    {
+      "block_size": 128,
+      "tokens": 2048,
+      "avg_ms": 0.11555347442626954
+    },
+    {
+      "block_size": 256,
+      "tokens": 256,
+      "avg_ms": 0.01877356719970703
+    },
+    {
+      "block_size": 256,
+      "tokens": 512,
+      "avg_ms": 0.027768447875976564
+    },
+    {
+      "block_size": 256,
+      "tokens": 2048,
+      "avg_ms": 0.12053862762451172
+    }
+  ]
+}

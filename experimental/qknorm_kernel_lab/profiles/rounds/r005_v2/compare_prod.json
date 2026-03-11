@@ -1,0 +1,9 @@
+{
+  "tokens": 512,
+  "iters": 200,
+  "warmup": 50,
+  "lab_avg_ms": 0.02523439884185791,
+  "prod_avg_ms": 0.02592911958694458,
+  "speedup_vs_prod": 1.0275307032055898,
+  "delta_pct_vs_prod": -2.67930711167094
+}
