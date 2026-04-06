@@ -19,10 +19,11 @@
 //       sources=["csrc/fused_qk_norm_rope_cache_quant.cu"],
 //       extra_cuda_cflags=["-O3", "--use_fast_math"])
 
-#include <torch/extension.h>
-#include <ATen/cuda/CUDAContext.h>
+#include <cmath>
+#include <cuda_runtime.h>
+
+#include <torch/cuda.h>
 #include <c10/cuda/CUDAGuard.h>
-#include <cuda.h>
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
 #include <cuda_bf16.h>
@@ -359,28 +360,10 @@ void fused_qk_norm_rope_cache_quant_v2(
 #undef LAUNCH
 }
 
-// ── PyBind ──
-
-PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
-  m.def("fused_qk_norm_rope_cache_quant",
-        &fused_qk_norm_rope_cache_quant,
-        "Fused QK RMSNorm + RoPE + KV cache write + FP8 quant (CUDA)",
-        py::arg("q_out"),
-        py::arg("k_cache"),
-        py::arg("v_cache"),
-        py::arg("qkv"),
-        py::arg("q_weight"),
-        py::arg("k_weight"),
-        py::arg("cos_sin_cache"),
-        py::arg("positions"),
-        py::arg("slot_mapping"),
-        py::arg("k_scale"),
-        py::arg("v_scale"),
-        py::arg("epsilon"),
-        py::arg("num_heads_q"),
-        py::arg("num_heads_kv"),
-        py::arg("head_dim"),
-        py::arg("block_size"),
-        py::arg("is_neox"),
-        py::arg("is_fp8"));
-}
+// PyBind registration is in torch_bindings.cpp (CMake build).
+// For standalone JIT testing, uncomment the PYBIND11_MODULE block below.
+//
+// PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
+//   m.def("fused_qk_norm_rope_cache_quant",
+//         &fused_qk_norm_rope_cache_quant, ...);
+// }
